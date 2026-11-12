@@ -1,6 +1,10 @@
 name: CI
 
 on:
+  # Branch pushes build in the repo that owns the branch, so a fork gets results without
+  # waiting for upstream. Pull requests from forks build in the receiving repo.
+  push:
+    branches-ignore: [main]
   pull_request:
   workflow_dispatch:
 
@@ -13,6 +17,8 @@ concurrency:
 
 jobs:
   test:
+    # Same-repo pull requests are already covered by the push run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -22,6 +28,8 @@ jobs:
       - run: node --test
 
   build:
+    # Same-repo pull requests are already covered by the push run.
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name != github.repository
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
