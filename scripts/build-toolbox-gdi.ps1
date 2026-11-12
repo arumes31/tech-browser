@@ -1,10 +1,15 @@
 [CmdletBinding()]
-param()
+param(
+    # Release builds pass the tag version; other builds get a development version.
+    [string]$Version
+)
 
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
-$version = '0.2.3'
+if (-not $Version) {
+    $Version = & (Join-Path $PSScriptRoot 'version.ps1')
+}
 $localDotnetPath = Join-Path $projectRoot '.tools\dotnet\dotnet.exe'
 $dotnetPath = if (Test-Path -LiteralPath $localDotnetPath) {
     $localDotnetPath
@@ -42,7 +47,7 @@ foreach ($directory in @($publishPath, $stagingPath)) {
 }
 
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
-& $dotnetPath publish $projectPath -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false -o $publishPath
+& $dotnetPath publish $projectPath -c Release -r win-x64 --self-contained true -p:PublishSingleFile=false "-p:Version=$Version" -o $publishPath
 if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE."
 }

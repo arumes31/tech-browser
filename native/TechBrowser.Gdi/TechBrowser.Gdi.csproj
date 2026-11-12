@@ -12,7 +12,6 @@
     <AssemblyName>Tech Browser</AssemblyName>
     <RootNamespace>TechBrowser.Gdi</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.2.3</Version>
   </PropertyGroup>
 
   <ItemGroup>

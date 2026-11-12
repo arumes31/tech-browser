@@ -1,0 +1,50 @@
+name: CI
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: node --test
+
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      # Only 7zip-bin is needed for packaging; skipping scripts avoids the Electron download.
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build package
+        shell: powershell
+        run: ./scripts/build-toolbox-gdi.ps1
+      - name: Verify package
+        shell: powershell
+        run: ./scripts/verify-toolbox-gdi.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: tech-browser-scapp
+          path: dist/*.scapp
+          if-no-files-found: error
