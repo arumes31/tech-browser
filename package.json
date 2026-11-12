@@ -1,6 +1,6 @@
 {
   "name": "eworx-tech-browser",
-  "version": "0.2.3",
+  "version": "0.3.1",
   "description": "A Backstage-compatible Chromium browser for ConnectWise Control using offscreen rendering and GDI output.",
   "main": "src/main.js",
   "author": "eworx",

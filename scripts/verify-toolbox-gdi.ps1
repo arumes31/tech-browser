@@ -1,11 +1,14 @@
 [CmdletBinding()]
 param(
-    [string]$Artifact = 'dist\Tech-Browser-0.2.3-x64-gdi.scapp'
+    [string]$Artifact
 )
 
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
+if (-not $Artifact) {
+    $Artifact = "dist\Tech-Browser-$((Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version)-x64-gdi.scapp"
+}
 $distPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'dist')).TrimEnd('\')
 $artifactPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $Artifact))
 $verifyPath = [System.IO.Path]::GetFullPath((Join-Path $distPath 'verify-gdi-scapp'))

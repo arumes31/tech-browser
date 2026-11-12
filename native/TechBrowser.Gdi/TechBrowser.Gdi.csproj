@@ -12,7 +12,7 @@
     <AssemblyName>Tech Browser</AssemblyName>
     <RootNamespace>TechBrowser.Gdi</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>0.2.3</Version>
+    <Version>0.3.1</Version>
   </PropertyGroup>
 
   <ItemGroup>

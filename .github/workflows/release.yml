@@ -1,0 +1,58 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+# Runs queue up so every push to main gets its own, strictly increasing version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Next version
+        id: version
+        shell: powershell
+        run: |
+          # Latest v* tag with the patch number raised by one; package.json seeds the first release.
+          $latest = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
+          if ($latest) {
+              $parts = $latest.TrimStart('v').Split('.')
+              $version = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
+          }
+          else {
+              $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          }
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Unexpected version: $version" }
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 8.0.x
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - name: Build package
+        shell: powershell
+        run: ./scripts/build-toolbox-gdi.ps1 -Version '${{ steps.version.outputs.version }}'
+      - name: Verify package
+        shell: powershell
+        run: ./scripts/verify-toolbox-gdi.ps1 -Artifact 'dist\Tech-Browser-${{ steps.version.outputs.version }}-x64-gdi.scapp'
+      - name: Publish release
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create 'v${{ steps.version.outputs.version }}' (Get-Item dist\*.scapp).FullName --target $env:GITHUB_SHA --generate-notes

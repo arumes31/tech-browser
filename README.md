@@ -55,6 +55,12 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-toolbox-gdi.p
 
 The verification workflow extracts the actual `.scapp`, starts it through the toolbox launcher, checks the required Visual C++ runtime files and diagnostic logs, and confirms that Chromium produced a rendered frame.
 
+## Continuous integration and releases
+
+- **CI** (`.github/workflows/ci.yml`) runs the Node tests and builds, smoke-tests and uploads the `.scapp` for every pull request.
+- **Release** (`.github/workflows/release.yml`) runs on every push to `main`. It takes the latest `v*` tag, raises the patch number by one, builds the package with that version and publishes it as a GitHub release. The first release uses the version in `package.json`. To start a new minor or major line, push a tag such as `v0.4.0` by hand; the next push to `main` continues from it.
+- **CodeQL**, **dependency review** and **Dependabot** cover code scanning and dependency updates.
+
 ## ScreenConnect deployment
 
 1. Add the generated `.scapp` file to the ConnectWise Control toolbox.
