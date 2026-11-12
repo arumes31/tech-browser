@@ -47,6 +47,8 @@ pnpm pack:toolbox:gdi
 
 The resulting `.scapp` package is written to `dist`. It contains a compressed, self-contained browser payload, so no .NET or Visual C++ installation is required on the endpoint.
 
+To keep the transfer small, the build removes parts the browser never loads: Chromium UI languages other than English and German, the WebGPU and SwiftShader libraries (the GPU is disabled, so WebGL and WebGPU pages do not work), and the WPF, debugger and satellite-resource files of the .NET runtime. The payload is compressed with a 256 MB LZMA2 dictionary, so extraction needs about that much free memory.
+
 Verify the finished package:
 
 ```powershell

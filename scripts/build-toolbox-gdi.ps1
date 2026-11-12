@@ -66,6 +66,30 @@ foreach ($runtimeFile in $vcRuntimeFiles) {
     Copy-Item -LiteralPath $runtimeSource -Destination $publishPath -Force
 }
 
+# Shrink the payload: transfer and first-launch extraction dominate startup in Backstage.
+# Chromium UI strings: keep English and German. Web page content is unaffected.
+Get-ChildItem -LiteralPath (Join-Path $publishPath 'locales') -File |
+    Where-Object { $_.Name -notmatch '^(en-US|de)(_|\.)' } |
+    Remove-Item -Force
+# The browser runs with the GPU disabled, so WebGPU and SwiftShader (software WebGL) are never loaded.
+# libEGL, libGLESv2 and d3dcompiler_47 must stay: CefSharp refuses to start without them.
+# The .NET self-contained runtime also ships WPF, debugger support and satellite resources
+# that a WinForms-only app does not load.
+$unusedFiles = @(
+    'dxcompiler.dll', 'dxil.dll', 'vk_swiftshader.dll', 'vk_swiftshader_icd.json', 'vulkan-1.dll',
+    'Presentation*.dll', 'wpfgfx_cor3.dll', 'D3DCompiler_47_cor3.dll', 'PenImc_cor3.dll', 'ReachFramework.dll',
+    'System.Xaml.dll', 'System.Windows.Controls.Ribbon.dll', 'System.Windows.Presentation.dll',
+    'System.Windows.Input.Manipulations.dll', 'UIAutomation*.dll', 'WindowsFormsIntegration.dll',
+    'System.Printing.dll', 'DirectWriteForwarder.dll', 'vcruntime140_cor3.dll',
+    'createdump.exe', 'mscordaccore*.dll', 'mscordbi.dll', 'Microsoft.DiaSymReader.Native.amd64.dll', '*.pdb'
+)
+foreach ($pattern in $unusedFiles) {
+    Get-ChildItem -LiteralPath $publishPath -File -Filter $pattern | Remove-Item -Force
+}
+Get-ChildItem -LiteralPath $publishPath -Directory |
+    Where-Object { $_.Name -ne 'locales' -and -not (Get-ChildItem -LiteralPath $_.FullName -File | Where-Object { $_.Name -notlike '*.resources.dll' }) } |
+    Remove-Item -Recurse -Force
+
 New-Item -ItemType Directory -Path $stagingPath | Out-Null
 Copy-Item -LiteralPath $launcherPath -Destination $stagingPath -Force
 Copy-Item -LiteralPath $sevenZipPath -Destination (Join-Path $stagingPath '7za.exe') -Force
@@ -73,7 +97,8 @@ Copy-Item -LiteralPath $sevenZipLicensePath -Destination (Join-Path $stagingPath
 
 Push-Location $publishPath
 try {
-    & $sevenZipPath a -t7z $payloadPath '.\*' -mx=5 -m0=lzma2 -md=32m -mmt=on -ms=on
+    # A 256 MB dictionary covers libcef.dll; two threads keep compression memory within a CI runner.
+    & $sevenZipPath a -t7z $payloadPath '.\*' -mx=9 -m0=lzma2 -md=256m -mfb=273 -mmt=2 -ms=on
     if ($LASTEXITCODE -ne 0) {
         throw "7-Zip failed with exit code $LASTEXITCODE."
     }
