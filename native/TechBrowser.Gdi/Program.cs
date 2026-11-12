@@ -20,6 +20,9 @@ internal static class Program
             AppDomain.CurrentDomain.UnhandledException += (_, eventArgs) =>
                 WriteLog("Unhandled exception", eventArgs.ExceptionObject as Exception ?? new Exception(eventArgs.ExceptionObject?.ToString()));
 
+            // Backstage runs on an unthemed desktop; these values explain black controls in the field.
+            WriteLog($"Display; HighContrast={SystemInformation.HighContrast}; Control={SystemColors.Control.ToArgb():X8}; ControlText={SystemColors.ControlText.ToArgb():X8}; Window={SystemColors.Window.ToArgb():X8}; BitsPerPixel={Screen.PrimaryScreen?.BitsPerPixel}");
+
             Application.SetHighDpiMode(HighDpiMode.SystemAware);
             Application.EnableVisualStyles();
             Application.SetCompatibleTextRenderingDefault(false);
@@ -30,8 +33,14 @@ internal static class Program
                 MultiThreadedMessageLoop = true,
                 LogSeverity = LogSeverity.Warning,
                 LogFile = Path.Combine(LogDirectory, "Tech-Browser-cef.log"),
-                PersistSessionCookies = false
+                PersistSessionCookies = false,
+                // Opaque white: a transparent offscreen buffer shows as black where a page paints nothing.
+                BackgroundColor = Cef.ColorSetARGB(255, 255, 255, 255)
             };
+
+            // High contrast on the Backstage desktop makes Chromium repaint buttons, menus and icons in system colours.
+            settings.CefCommandLineArgs["disable-features"] = "ForcedColors";
+            settings.CefCommandLineArgs["disable-blink-features"] = "ForcedColors";
 
             settings.CefCommandLineArgs["disable-gpu"] = "1";
             settings.CefCommandLineArgs["disable-gpu-compositing"] = "1";

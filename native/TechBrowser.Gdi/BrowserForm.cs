@@ -1,11 +1,11 @@
 using CefSharp;
 using CefSharp.OffScreen;
-using System.Drawing.Drawing2D;
 
 namespace TechBrowser.Gdi;
 
 internal sealed class BrowserForm : Form
 {
+    private static readonly Color ToolbarColor = Color.FromArgb(246, 248, 250);
     private readonly ChromiumWebBrowser browser;
     private readonly BrowserSurface surface;
     private readonly TextBox addressBox;
@@ -41,6 +41,8 @@ internal sealed class BrowserForm : Form
             Dock = DockStyle.Fill,
             Font = new Font("Segoe UI", 10F),
             Margin = new Padding(5, 8, 5, 7),
+            BackColor = Color.White,
+            ForeColor = Color.Black,
             PlaceholderText = "Adresse oder Suchbegriff"
         };
 
@@ -58,7 +60,7 @@ internal sealed class BrowserForm : Form
         {
             Dock = DockStyle.Top,
             Height = 50,
-            BackColor = Color.FromArgb(246, 248, 250),
+            BackColor = ToolbarColor,
             Padding = new Padding(6),
             ColumnCount = 7,
             RowCount = 1
@@ -140,6 +142,18 @@ internal sealed class BrowserForm : Form
             TabStop = false
         };
         button.FlatAppearance.BorderSize = 0;
+        // Paint the button ourselves: themed and high-contrast rendering comes out black in Backstage.
+        button.Paint += (_, eventArgs) =>
+        {
+            eventArgs.Graphics.Clear(ToolbarColor);
+            TextRenderer.DrawText(
+                eventArgs.Graphics,
+                button.Text,
+                button.Font,
+                button.ClientRectangle,
+                button.Enabled ? Color.Black : Color.Gray,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        };
         new ToolTip().SetToolTip(button, tooltip);
         return button;
     }
@@ -174,10 +188,11 @@ internal sealed class BrowserForm : Form
             using var screenshot = browser.ScreenshotOrNull(PopupBlending.Blend);
             if (screenshot is null) return;
 
-            var frame = new Bitmap(screenshot.Width, screenshot.Height, System.Drawing.Imaging.PixelFormat.Format32bppPArgb);
+            // Flatten onto white in memory so no alpha reaches the screen; Backstage shows it as black.
+            var frame = new Bitmap(screenshot.Width, screenshot.Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
             using (var graphics = Graphics.FromImage(frame))
             {
-                graphics.CompositingMode = CompositingMode.SourceCopy;
+                graphics.Clear(Color.White);
                 graphics.DrawImageUnscaled(screenshot, 0, 0);
             }
 
