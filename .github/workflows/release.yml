@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+    tags: ['v*']
 
 permissions:
   contents: write
@@ -23,16 +24,14 @@ jobs:
         id: version
         shell: powershell
         run: |
-          # Latest v* tag with the patch number raised by one; package.json seeds the first release.
-          $latest = git tag --list 'v*' --sort=-v:refname | Select-Object -First 1
-          if ($latest) {
-              $parts = $latest.TrimStart('v').Split('.')
-              $version = "$($parts[0]).$($parts[1]).$([int]$parts[2] + 1)"
+          # A pushed v* tag releases exactly that version; a push to main takes the next patch.
+          if ($env:GITHUB_REF -like 'refs/tags/v*') {
+              $version = $env:GITHUB_REF_NAME.Substring(1)
           }
           else {
-              $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+              $version = ./scripts/version.ps1 -NextRelease
           }
-          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "Unexpected version: $version" }
+          if ($version -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$') { throw "Unexpected version: $version" }
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
       - uses: actions/setup-dotnet@v6
         with:
@@ -52,7 +51,16 @@ jobs:
         shell: powershell
         run: ./scripts/verify-toolbox-gdi.ps1 -Artifact 'dist\Tech-Browser-${{ steps.version.outputs.version }}-x64-gdi.scapp'
       - name: Publish release
-        shell: powershell
+        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create 'v${{ steps.version.outputs.version }}' (Get-Item dist\*.scapp).FullName --target $env:GITHUB_SHA --generate-notes
+          TAG: v${{ steps.version.outputs.version }}
+        run: |
+          # A rerun of an already published commit replaces the file instead of creating a new release.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/*.scapp --clobber
+          elif [[ "$TAG" == *-* ]]; then
+            gh release create "$TAG" dist/*.scapp --target "$GITHUB_SHA" --generate-notes --prerelease
+          else
+            gh release create "$TAG" dist/*.scapp --target "$GITHUB_SHA" --generate-notes
+          fi

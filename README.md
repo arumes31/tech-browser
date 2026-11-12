@@ -58,7 +58,7 @@ The verification workflow extracts the actual `.scapp`, starts it through the to
 ## Continuous integration and releases
 
 - **CI** (`.github/workflows/ci.yml`) runs the Node tests and builds, smoke-tests and uploads the `.scapp` for every pull request.
-- **Release** (`.github/workflows/release.yml`) runs on every push to `main`. It takes the latest `v*` tag, raises the patch number by one, builds the package with that version and publishes it as a GitHub release. The first release uses the version in `package.json`. To start a new minor or major line, push a tag such as `v0.4.0` by hand; the next push to `main` continues from it.
+- **Release** (`.github/workflows/release.yml`) runs on every push to `main` and publishes the `.scapp` as a GitHub release. Versioning is automatic and works like the noxa repo: `VERSION` names the release line, the workflow takes the next unused patch after the existing `v*` tags, and nothing is committed back. Re-running a released commit keeps its version. Pushing a `v*` tag by hand releases exactly that version. To start a new minor or major line, raise `VERSION`. Builds outside a release are stamped `<VERSION>-dev+<commit>` (`scripts/version.ps1`).
 - **CodeQL**, **dependency review** and **Dependabot** cover code scanning and dependency updates.
 
 ## ScreenConnect deployment

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    # Release builds pass the tag version; local builds use package.json.
+    # Release builds pass the tag version; other builds get a development version.
     [string]$Version
 )
 
@@ -8,7 +8,7 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Version) {
-    $Version = (Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json).version
+    $Version = & (Join-Path $PSScriptRoot 'version.ps1')
 }
 $localDotnetPath = Join-Path $projectRoot '.tools\dotnet\dotnet.exe'
 $dotnetPath = if (Test-Path -LiteralPath $localDotnetPath) {
