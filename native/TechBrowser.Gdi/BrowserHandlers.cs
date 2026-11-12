@@ -4,6 +4,8 @@ using CefSharp.Handler;
 namespace TechBrowser.Gdi;
 
 // Chromium would open "new window" links in a window of its own, which Backstage cannot show.
+// shortcut: only the address is carried over, so a form that posts data to a new window arrives
+// without its data; upgrade to a second offscreen browser if a portal depends on that.
 internal sealed class SameWindowLifeSpanHandler : LifeSpanHandler
 {
     protected override bool OnBeforePopup(
@@ -61,6 +63,9 @@ internal sealed class PromptingRequestHandler(Form owner) : RequestHandler
         ISslInfo sslInfo,
         IRequestCallback callback)
     {
+        // CefSharp passes no callback when the error cannot be overridden; the request is cancelled.
+        if (callback is null) return false;
+
         owner.BeginInvoke(() =>
         {
             using (callback)

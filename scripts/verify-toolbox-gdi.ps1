@@ -47,7 +47,7 @@ if ($firstName -ne '0-Tech-Browser-GDI.vbs') {
 
 [System.IO.Compression.ZipFile]::ExtractToDirectory($artifactPath, $verifyPath)
 $launcherPath = Join-Path $verifyPath '0-Tech-Browser-GDI.vbs'
-foreach ($required in @($launcherPath, (Join-Path $verifyPath '7za.exe'), (Join-Path $verifyPath 'payload.7z'))) {
+foreach ($required in @($launcherPath, (Join-Path $verifyPath '7za.exe'), (Join-Path $verifyPath 'payload.7z'), (Join-Path $verifyPath 'payload.id'))) {
     if (-not (Test-Path -LiteralPath $required)) {
         throw "Required package file is missing: $required"
     }

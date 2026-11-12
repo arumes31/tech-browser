@@ -16,7 +16,6 @@ internal sealed class BrowserForm : Form
     private readonly Label statusLabel;
     private readonly bool smokeTest;
     private int smokeTestCompleted;
-    private int smokeClickSent;
     private volatile bool smokePopupLoaded;
     private volatile bool smokeFirstPageLoaded;
     private readonly float browserScale;
@@ -143,16 +142,42 @@ internal sealed class BrowserForm : Form
             browser.CreateBrowser();
             if (!smokeTest) return;
             BeginInvoke(Hide);
-            // A smoke test that never finishes must fail instead of blocking the build.
-            var timeout = new System.Windows.Forms.Timer { Interval = 30000 };
-            timeout.Tick += (_, _) =>
+            // Chromium ignores input until the new page has produced a frame, so the click is
+            // repeated until the second page loads. A test that never finishes must fail
+            // instead of blocking the build.
+            var ticks = 0;
+            var smokeTimer = new System.Windows.Forms.Timer { Interval = 500 };
+            smokeTimer.Tick += (_, _) =>
             {
-                timeout.Stop();
-                Program.WriteLog("Smoke test timed out");
-                Environment.ExitCode = 2;
-                Close();
+                if (smokeTestCompleted != 0)
+                {
+                    smokeTimer.Stop();
+                    return;
+                }
+                if (++ticks > 60)
+                {
+                    smokeTimer.Stop();
+                    Program.WriteLog("Smoke test timed out");
+                    Environment.ExitCode = 2;
+                    Close();
+                    return;
+                }
+
+                var host = GetBrowserHost();
+                if (host is null) return;
+                if (smokePopupLoaded)
+                {
+                    host.Invalidate(PaintElementType.View);
+                }
+                else if (smokeFirstPageLoaded)
+                {
+                    var click = new CefSharp.MouseEvent(50, 50, CefEventFlags.None);
+                    host.SendMouseMoveEvent(click, mouseLeave: false);
+                    host.SendMouseClickEvent(click, MouseButtonType.Left, mouseUp: false, clickCount: 1);
+                    host.SendMouseClickEvent(click, MouseButtonType.Left, mouseUp: true, clickCount: 1);
+                }
             };
-            timeout.Start();
+            smokeTimer.Start();
         };
         FormClosed += (_, _) => browser.Dispose();
     }
@@ -224,45 +249,28 @@ internal sealed class BrowserForm : Form
             graphics.DrawImageUnscaled(screenshot, 0, 0);
         }
 
-        // The click is sent after a frame of the loaded page was painted; earlier clicks hit nothing.
-        if (smokeTest && smokeFirstPageLoaded && !smokePopupLoaded && Interlocked.Exchange(ref smokeClickSent, 1) == 0)
+        if (smokeTest && smokePopupLoaded && ShowsSmokePopupPage(frame) && Interlocked.Exchange(ref smokeTestCompleted, 1) == 0)
         {
-            var host = browser.GetBrowserHost();
-            var click = new CefSharp.MouseEvent(50, 50, CefEventFlags.None);
-            host.SendMouseMoveEvent(click, mouseLeave: false);
-            host.SendMouseClickEvent(click, MouseButtonType.Left, mouseUp: false, clickCount: 1);
-            host.SendMouseClickEvent(click, MouseButtonType.Left, mouseUp: true, clickCount: 1);
-        }
-
-        if (smokeTest && smokePopupLoaded && smokeTestCompleted == 0)
-        {
-            if (!HasContent(frame))
+            var smokeImage = Environment.GetEnvironmentVariable("TECH_BROWSER_SMOKE_IMAGE");
+            if (!string.IsNullOrWhiteSpace(smokeImage))
             {
-                // The second page has loaded but not painted yet; ask for another frame.
-                browser.GetBrowserHost().Invalidate(PaintElementType.View);
+                frame.Save(smokeImage, System.Drawing.Imaging.ImageFormat.Png);
             }
-            else if (Interlocked.Exchange(ref smokeTestCompleted, 1) == 0)
-            {
-                var smokeImage = Environment.GetEnvironmentVariable("TECH_BROWSER_SMOKE_IMAGE");
-                if (!string.IsNullOrWhiteSpace(smokeImage))
-                {
-                    frame.Save(smokeImage, System.Drawing.Imaging.ImageFormat.Png);
-                }
-                BeginInvoke(Close);
-            }
+            BeginInvoke(Close);
         }
         surface.SetFrame(frame);
     }
 
-    // A blank white frame must not pass the smoke test.
-    private static bool HasContent(Bitmap frame)
+    // Only the second smoke-test page paints a green block, so a blank frame or a frame
+    // of the first page cannot pass.
+    private static bool ShowsSmokePopupPage(Bitmap frame)
     {
-        var white = Color.White.ToArgb();
         for (var y = 0; y < frame.Height; y += 4)
         {
             for (var x = 0; x < frame.Width; x += 4)
             {
-                if (frame.GetPixel(x, y).ToArgb() != white) return true;
+                var pixel = frame.GetPixel(x, y);
+                if (pixel.G > pixel.R + 60 && pixel.G > pixel.B + 60) return true;
             }
         }
         return false;
@@ -292,13 +300,12 @@ internal sealed class BrowserForm : Form
         });
     }
 
-    // Smoke test: click the "new window" link on the first page, then wait for the second page.
+    // Smoke test: the timer clicks the "new window" link on the first page and waits for the second.
     // This exercises mouse input, popup redirection and rendering in the packaged build.
     private void AdvanceSmokeTest(IBrowser smokeBrowser)
     {
         if (smokeBrowser.MainFrame.Url == Program.SmokePopupUrl) smokePopupLoaded = true;
         else smokeFirstPageLoaded = true;
-        smokeBrowser.GetHost().Invalidate(PaintElementType.View);
     }
 
     private void BrowserLoadError(object? sender, LoadErrorEventArgs eventArgs)
@@ -317,6 +324,12 @@ internal sealed class BrowserForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // The page receives Tab and arrow keys, so the address bar needs its own shortcut.
+        if (keyData is (Keys.Control | Keys.L) or Keys.F6)
+        {
+            addressBox.Focus();
+            return true;
+        }
         if (addressBox.Focused && keyData == Keys.Enter)
         {
             NavigateFromAddressBox();

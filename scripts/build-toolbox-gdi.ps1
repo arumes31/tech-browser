@@ -107,6 +107,10 @@ finally {
     Pop-Location
 }
 
+# The launcher compares this identity with the extracted copy to decide whether to extract again.
+"$Version $((Get-FileHash -LiteralPath $payloadPath -Algorithm SHA256).Hash)" |
+    Set-Content -LiteralPath (Join-Path $stagingPath 'payload.id') -Encoding Ascii
+
 foreach ($artifact in @($zipPath, $scappPath)) {
     if (Test-Path -LiteralPath $artifact) {
         Remove-Item -LiteralPath $artifact -Force

@@ -13,7 +13,8 @@ The primary implementation is `native/TechBrowser.Gdi`:
 - WinForms/GDI presentation compatible with Backstage capture
 - address bar, back, forward, reload, and explicit navigation button
 - HTTP handling for localhost, local IP addresses and single-word host names such as `nas` or `printer01:8080`
-- links that ask for a new window open in the same window
+- links that ask for a new window open in the same window (a form that posts data to a new window arrives without its data)
+- Ctrl+L or F6 moves the keyboard focus to the address bar
 - prompts for HTTP logins and for untrusted certificates
 - pages rendered at the Windows display scale
 - no persistent browser profile, cookies, passwords, or history

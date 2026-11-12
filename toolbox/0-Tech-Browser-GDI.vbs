@@ -17,7 +17,9 @@ browser = quote & appPath & "\Tech Browser.exe" & quote
 LogMessage "Launcher started; BasePath=" & basePath
 
 ' The stamp records which payload the app folder was extracted from, so a newer package replaces it.
+' payload.id is written by the build (version and hash); the size is a fallback for hand-made packages.
 stamp = CStr(files.GetFile(payloadPath).Size)
+If files.FileExists(basePath & "\payload.id") Then stamp = ReadFirstLine(basePath & "\payload.id")
 
 If Not IsExtracted() Then
     LogMessage "Browser missing or from another package; starting 7-Zip"
@@ -45,6 +47,12 @@ For Each item In WScript.Arguments
     arguments = arguments & " " & quote & Replace(item, quote, quote & quote) & quote
 Next
 
+If Not files.FileExists(appPath & "\Tech Browser.exe") Then
+    LogMessage "No usable browser folder after extraction"
+    MsgBox "Tech Browser konnte nicht bereitgestellt werden.", vbCritical, "Tech Browser"
+    WScript.Quit 1
+End If
+
 ' Arguments can contain an address and are not logged.
 LogMessage "Starting browser"
 exitCode = shell.Run(browser & arguments, 1, True)
@@ -52,12 +60,17 @@ LogMessage "Browser exit code=" & exitCode
 WScript.Quit exitCode
 
 Function IsExtracted()
-    Dim stream
     IsExtracted = False
     If Not files.FileExists(appPath & "\Tech Browser.exe") Then Exit Function
     If Not files.FileExists(stampPath) Then Exit Function
-    Set stream = files.OpenTextFile(stampPath, 1)
-    If Not stream.AtEndOfStream Then IsExtracted = (stream.ReadLine = stamp)
+    IsExtracted = (ReadFirstLine(stampPath) = stamp)
+End Function
+
+Function ReadFirstLine(path)
+    Dim stream
+    ReadFirstLine = ""
+    Set stream = files.OpenTextFile(path, 1)
+    If Not stream.AtEndOfStream Then ReadFirstLine = stream.ReadLine
     stream.Close
 End Function
 
@@ -74,7 +87,12 @@ Function ReplaceApp()
     stream.WriteLine stamp
     stream.Close
     files.MoveFolder appPath & ".tmp", appPath
-    If Err.Number <> 0 Then Exit Function
+    If Err.Number <> 0 Then
+        ' Put the previous version back so there is still something to start.
+        Err.Clear
+        If files.FolderExists(appPath & ".old") Then files.MoveFolder appPath & ".old", appPath
+        Exit Function
+    End If
     On Error GoTo 0
     RemoveFolder appPath & ".old"
     ReplaceApp = True

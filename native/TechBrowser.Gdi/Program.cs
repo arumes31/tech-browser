@@ -12,8 +12,9 @@ internal static class Program
     private static readonly string CefLogPath = Path.Combine(LogDirectory, "Tech-Browser-cef.log");
 
     // Second smoke-test page; the first page links to it with target=_blank.
+    // Its green block is the marker the smoke test looks for; the first page has no green.
     internal static readonly string SmokePopupUrl = "data:text/html," + Uri.EscapeDataString(
-        "<title>SMOKE-POPUP</title><body style='background:white'><h1 style='color:#123456'>POPUP OK</h1><select><option>A</option><option>B</option></select>");
+        "<title>SMOKE-POPUP</title><body style='background:white'><h1 style='color:#123456'>POPUP OK</h1><div style='width:200px;height:100px;background:#00a050'></div><select><option>A</option><option>B</option></select>");
 
     [STAThread]
     private static void Main(string[] args)
