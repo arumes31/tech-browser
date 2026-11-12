@@ -12,29 +12,30 @@ The primary implementation is `native/TechBrowser.Gdi`:
 - software rendering with GPU and DirectComposition disabled
 - WinForms/GDI presentation compatible with Backstage capture
 - address bar, back, forward, reload, and explicit navigation button
-- HTTP handling for localhost and local IP addresses
+- HTTP handling for localhost, local IP addresses and single-word host names such as `nas` or `printer01:8080`
+- links that ask for a new window open in the same window
+- prompts for HTTP logins and for untrusted certificates
+- pages rendered at the Windows display scale
 - no persistent browser profile, cookies, passwords, or history
-- application, launcher, and CEF diagnostic logs
+- application, launcher, and CEF diagnostic logs, started fresh on every launch and limited to scheme and host of visited addresses
 - self-contained x64 .NET runtime
 - app-local Visual C++ 2022 runtime deployment
 
-The older Electron implementation remains under `src` as a reference prototype. Its normal Chromium compositor was not consistently visible through Backstage capture.
+An earlier Electron prototype was removed; its normal Chromium compositor was not consistently visible through Backstage capture. It remains in the git history.
 
 ## Repository layout
 
 ```text
 native/TechBrowser.Gdi/   CefSharp OffScreen and WinForms/GDI browser
 scripts/                  publish, package, and verification scripts
-toolbox/                  ScreenConnect toolbox launchers
-src/                      legacy Electron prototype
-test/                     Electron navigation tests
+toolbox/                  ScreenConnect toolbox launcher
 ```
 
 ## Requirements
 
 - Windows x64
 - .NET 8 SDK
-- Node.js and pnpm
+- Node.js and pnpm (only to fetch the bundled 7-Zip executable)
 
 The build uses the system `dotnet` command. A private SDK installation at `.tools/dotnet/dotnet.exe` is also detected automatically.
 
@@ -55,13 +56,13 @@ Verify the finished package:
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/verify-toolbox-gdi.ps1
 ```
 
-The verification workflow extracts the actual `.scapp`, starts it through the toolbox launcher, checks the required Visual C++ runtime files and diagnostic logs, and confirms that Chromium produced a rendered frame.
+The verification workflow extracts the actual `.scapp` and starts it through the toolbox launcher. The smoke test clicks a link that asks for a new window and passes only when the second page is rendered with visible content, which covers mouse input, popup handling and painting. It also checks the required Visual C++ runtime files and diagnostic logs, and runs the address-bar self-test built into the executable (`--self-test`).
 
 ## Continuous integration and releases
 
-- **CI** (`.github/workflows/ci.yml`) runs the Node tests and builds, smoke-tests and uploads the `.scapp`. It runs on every branch push in the repository that owns the branch, and on every pull request against the merge result.
+- **CI** (`.github/workflows/ci.yml`) builds, smoke-tests and uploads the `.scapp`. It runs on every branch push in the repository that owns the branch, and on every pull request against the merge result.
 - **Release** (`.github/workflows/release.yml`) runs on every push to `main` and publishes the `.scapp` as a GitHub release. Versioning is automatic and works like the noxa repo: `VERSION` names the release line, the workflow takes the next unused patch after the existing `v*` tags, and nothing is committed back. Re-running a released commit keeps its version. Pushing a `v*` tag by hand releases exactly that version. To start a new minor or major line, raise `VERSION`. Builds outside a release are stamped `<VERSION>-dev+<commit>` (`scripts/version.ps1`).
-- **CodeQL**, **dependency review** and **Dependabot** cover code scanning and dependency updates.
+- **CodeQL**, **dependency review** and **Dependabot** cover code scanning and dependency updates. Actions are pinned to commit hashes; Dependabot keeps them current. In a fork, Dependabot version updates must be switched on under Insights → Dependency graph → Dependabot, otherwise no Chromium (CefSharp) updates arrive.
 
 The workflows contain no repository-specific names or secrets, so they behave the same in a fork and in the upstream repository; each repository keeps its own `v*` tags and releases. Two repository settings matter: Actions must be enabled, and dependency review needs the dependency graph (off by default in forks, under Settings → Advanced Security). GitHub may hold the first pull-request run from a new contributor until a maintainer approves it.
 
@@ -81,7 +82,7 @@ Diagnostic files are created beside the extracted payload:
 
 ## Security notes
 
-Backstage applications commonly run with elevated privileges. Use this browser only for trusted vendor, customer, and device interfaces. Chromium certificate validation and sandboxing remain enabled. The application does not alter whether ConnectWise displays a connection indicator; that behavior is controlled by the ConnectWise configuration and connection method.
+Backstage applications commonly run with elevated privileges. Use this browser only for trusted vendor, customer, and device interfaces. Chromium certificate validation and sandboxing remain enabled; a page with an untrusted certificate opens only after the technician confirms a warning. The application does not alter whether ConnectWise displays a connection indicator; that behavior is controlled by the ConnectWise configuration and connection method.
 
 ## Status
 

@@ -33,7 +33,7 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      # Only 7zip-bin is needed for packaging; skipping scripts avoids the Electron download.
+      # Only the bundled 7-Zip executable is needed; no package scripts have to run.
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build package
         shell: powershell
