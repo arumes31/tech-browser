@@ -1,6 +1,11 @@
 name: CI
 
 on:
+  # Branch pushes build in the repo that owns the branch, so a fork gets results without
+  # waiting for upstream. Pull requests build the merge result in the receiving repo.
+  # main is left out: the release workflow builds and smoke-tests every push there.
+  push:
+    branches-ignore: [main]
   pull_request:
   workflow_dispatch:
 

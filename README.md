@@ -57,9 +57,11 @@ The verification workflow extracts the actual `.scapp`, starts it through the to
 
 ## Continuous integration and releases
 
-- **CI** (`.github/workflows/ci.yml`) runs the Node tests and builds, smoke-tests and uploads the `.scapp` for every pull request.
+- **CI** (`.github/workflows/ci.yml`) runs the Node tests and builds, smoke-tests and uploads the `.scapp`. It runs on every branch push in the repository that owns the branch, and on every pull request against the merge result.
 - **Release** (`.github/workflows/release.yml`) runs on every push to `main` and publishes the `.scapp` as a GitHub release. Versioning is automatic and works like the noxa repo: `VERSION` names the release line, the workflow takes the next unused patch after the existing `v*` tags, and nothing is committed back. Re-running a released commit keeps its version. Pushing a `v*` tag by hand releases exactly that version. To start a new minor or major line, raise `VERSION`. Builds outside a release are stamped `<VERSION>-dev+<commit>` (`scripts/version.ps1`).
 - **CodeQL**, **dependency review** and **Dependabot** cover code scanning and dependency updates.
+
+The workflows contain no repository-specific names or secrets, so they behave the same in a fork and in the upstream repository; each repository keeps its own `v*` tags and releases. Two repository settings matter: Actions must be enabled, and dependency review needs the dependency graph (off by default in forks, under Settings → Advanced Security). GitHub may hold the first pull-request run from a new contributor until a maintainer approves it.
 
 ## ScreenConnect deployment
 
