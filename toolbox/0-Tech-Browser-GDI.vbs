@@ -1,6 +1,7 @@
 Option Explicit
 
 Dim shell, files, basePath, quote, sevenZip, browser, arguments, item, exitCode, logPath
+Dim appPath, payloadPath, stampPath, stamp
 Set shell = CreateObject("WScript.Shell")
 Set files = CreateObject("Scripting.FileSystemObject")
 
@@ -8,17 +9,34 @@ basePath = files.GetParentFolderName(WScript.ScriptFullName)
 logPath = basePath & "\Tech-Browser-launcher.log"
 quote = Chr(34)
 sevenZip = quote & basePath & "\7za.exe" & quote
-browser = quote & basePath & "\app\Tech Browser.exe" & quote
+appPath = basePath & "\app"
+payloadPath = basePath & "\payload.7z"
+stampPath = appPath & "\payload.stamp"
+browser = quote & appPath & "\Tech Browser.exe" & quote
 
 LogMessage "Launcher started; BasePath=" & basePath
 
-If Not files.FileExists(basePath & "\app\Tech Browser.exe") Then
-    LogMessage "Browser not extracted; starting 7-Zip"
-    exitCode = shell.Run(sevenZip & " x " & quote & basePath & "\payload.7z" & quote & " -o" & quote & basePath & "\app" & quote & " -y", 0, True)
+' The stamp records which payload the app folder was extracted from, so a newer package replaces it.
+stamp = CStr(files.GetFile(payloadPath).Size)
+
+If Not IsExtracted() Then
+    LogMessage "Browser missing or from another package; starting 7-Zip"
+    ' Extract beside the target and rename at the end: an interrupted run must never look complete.
+    RemoveFolder appPath & ".tmp"
+    exitCode = shell.Run(sevenZip & " x " & quote & payloadPath & quote & " -o" & quote & appPath & ".tmp" & quote & " -y", 0, True)
     LogMessage "7-Zip exit code=" & exitCode
     If exitCode <> 0 Then
+        RemoveFolder appPath & ".tmp"
         MsgBox "Tech Browser konnte nicht entpackt werden. Fehlercode: " & exitCode, vbCritical, "Tech Browser"
         WScript.Quit exitCode
+    End If
+
+    If ReplaceApp() Then
+        LogMessage "Extraction complete"
+    Else
+        ' Renaming fails while the old version is running; keep using it.
+        LogMessage "Existing version is in use; keeping it"
+        RemoveFolder appPath & ".tmp"
     End If
 End If
 
@@ -27,10 +45,46 @@ For Each item In WScript.Arguments
     arguments = arguments & " " & quote & Replace(item, quote, quote & quote) & quote
 Next
 
-LogMessage "Starting browser; Command=" & browser & arguments
+' Arguments can contain an address and are not logged.
+LogMessage "Starting browser"
 exitCode = shell.Run(browser & arguments, 1, True)
 LogMessage "Browser exit code=" & exitCode
 WScript.Quit exitCode
+
+Function IsExtracted()
+    Dim stream
+    IsExtracted = False
+    If Not files.FileExists(appPath & "\Tech Browser.exe") Then Exit Function
+    If Not files.FileExists(stampPath) Then Exit Function
+    Set stream = files.OpenTextFile(stampPath, 1)
+    If Not stream.AtEndOfStream Then IsExtracted = (stream.ReadLine = stamp)
+    stream.Close
+End Function
+
+Function ReplaceApp()
+    Dim stream
+    ReplaceApp = False
+    RemoveFolder appPath & ".old"
+    On Error Resume Next
+    If files.FolderExists(appPath) Then
+        files.MoveFolder appPath, appPath & ".old"
+        If Err.Number <> 0 Then Exit Function
+    End If
+    Set stream = files.CreateTextFile(appPath & ".tmp\payload.stamp", True)
+    stream.WriteLine stamp
+    stream.Close
+    files.MoveFolder appPath & ".tmp", appPath
+    If Err.Number <> 0 Then Exit Function
+    On Error GoTo 0
+    RemoveFolder appPath & ".old"
+    ReplaceApp = True
+End Function
+
+Sub RemoveFolder(path)
+    On Error Resume Next
+    If files.FolderExists(path) Then files.DeleteFolder path, True
+    On Error GoTo 0
+End Sub
 
 Sub LogMessage(message)
     Dim stream

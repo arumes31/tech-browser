@@ -9,6 +9,9 @@ internal sealed class BrowserSurface : Control
 
     public Func<IBrowserHost?>? BrowserHostProvider { get; set; }
 
+    // Screen pixels per browser pixel; Chromium expects mouse positions in browser pixels.
+    public float BrowserScale { get; set; } = 1F;
+
     public BrowserSurface()
     {
         SetStyle(
@@ -106,6 +109,9 @@ internal sealed class BrowserSurface : Control
         BrowserHostProvider?.Invoke()?.SendFocusEvent(false);
     }
 
+    // Tab, arrow keys and Enter belong to the web page, not to WinForms focus navigation.
+    protected override bool IsInputKey(Keys keyData) => true;
+
     protected override void WndProc(ref Message message)
     {
         const int WmKeyDown = 0x0100;
@@ -117,7 +123,8 @@ internal sealed class BrowserSurface : Control
 
         if (message.Msg is WmKeyDown or WmKeyUp or WmChar or WmSysKeyDown or WmSysKeyUp or WmSysChar)
         {
-            BrowserHostProvider?.Invoke()?.SendKeyEvent(message.Msg, message.WParam.ToInt32(), message.LParam.ToInt32());
+            // ToInt32 throws on 64-bit Windows for key-up messages, whose top bits are set.
+            BrowserHostProvider?.Invoke()?.SendKeyEvent(message.Msg, unchecked((int)(long)message.WParam), unchecked((int)(long)message.LParam));
         }
 
         base.WndProc(ref message);
@@ -136,7 +143,7 @@ internal sealed class BrowserSurface : Control
         base.Dispose(disposing);
     }
 
-    private static CefSharp.MouseEvent ToCefMouseEvent(MouseEventArgs eventArgs)
+    private CefSharp.MouseEvent ToCefMouseEvent(MouseEventArgs eventArgs)
     {
         var flags = CefEventFlags.None;
         if ((ModifierKeys & Keys.Control) != 0) flags |= CefEventFlags.ControlDown;
@@ -145,7 +152,7 @@ internal sealed class BrowserSurface : Control
         if ((Control.MouseButtons & MouseButtons.Left) != 0) flags |= CefEventFlags.LeftMouseButton;
         if ((Control.MouseButtons & MouseButtons.Middle) != 0) flags |= CefEventFlags.MiddleMouseButton;
         if ((Control.MouseButtons & MouseButtons.Right) != 0) flags |= CefEventFlags.RightMouseButton;
-        return new CefSharp.MouseEvent(eventArgs.X, eventArgs.Y, flags);
+        return new CefSharp.MouseEvent((int)(eventArgs.X / BrowserScale), (int)(eventArgs.Y / BrowserScale), flags);
     }
 
     private static MouseButtonType ToCefButton(MouseButtons button)

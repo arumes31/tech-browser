@@ -65,7 +65,9 @@ finally {
     $env:TECH_BROWSER_SMOKE_IMAGE = $previousSmokeImage
 }
 
+$applicationLogPath = Join-Path $verifyPath 'Tech-Browser.log'
 if ($process.ExitCode -ne 0) {
+    if (Test-Path -LiteralPath $applicationLogPath) { Get-Content -LiteralPath $applicationLogPath | Write-Host }
     throw "Packaged browser smoke test failed with exit code $($process.ExitCode)."
 }
 if (-not (Test-Path -LiteralPath $smokeImagePath)) {
@@ -81,11 +83,18 @@ foreach ($runtimeFile in $runtimeFiles) {
 }
 
 $launcherLogPath = Join-Path $verifyPath 'Tech-Browser-launcher.log'
-$applicationLogPath = Join-Path $verifyPath 'Tech-Browser.log'
 foreach ($logPath in @($launcherLogPath, $applicationLogPath)) {
     if (-not (Test-Path -LiteralPath $logPath)) {
         throw "Expected diagnostic log was not created: $logPath"
     }
+}
+
+# The address-bar rules have no separate test project; the executable checks them itself.
+$selfTest = Start-Process -FilePath (Join-Path $verifyPath 'app\Tech Browser.exe') -ArgumentList '--self-test' `
+    -WorkingDirectory $verifyPath -Wait -PassThru
+if ($selfTest.ExitCode -ne 0) {
+    Get-Content -LiteralPath $applicationLogPath | Write-Host
+    throw "Address self-test failed with exit code $($selfTest.ExitCode)."
 }
 
 $hash = Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256
