@@ -11,6 +11,7 @@ permissions:
 # Runs queue up so every push to main gets its own, strictly increasing version.
 concurrency:
   group: release
+  queue: max
   cancel-in-progress: false
 
 jobs:
