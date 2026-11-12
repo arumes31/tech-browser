@@ -17,30 +17,23 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 22
-      - run: node --test
-
   build:
     runs-on: windows-latest
+    # A hung smoke test must not hold the runner, or the release queue, for hours.
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 8.0.x
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         with:
           version: 10
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 22
           cache: pnpm
-      # Only 7zip-bin is needed for packaging; skipping scripts avoids the Electron download.
+      # Only the bundled 7-Zip executable is needed; no package scripts have to run.
       - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build package
         shell: powershell
@@ -48,7 +41,7 @@ jobs:
       - name: Verify package
         shell: powershell
         run: ./scripts/verify-toolbox-gdi.ps1
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: tech-browser-scapp
           path: dist/*.scapp

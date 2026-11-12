@@ -16,6 +16,9 @@ internal sealed class BrowserForm : Form
     private readonly Label statusLabel;
     private readonly bool smokeTest;
     private int smokeTestCompleted;
+    private volatile bool smokePopupLoaded;
+    private volatile bool smokeFirstPageLoaded;
+    private readonly float browserScale;
     private int capturePending;
 
     public BrowserForm(string startUrl, bool smokeTest)
@@ -98,6 +101,13 @@ internal sealed class BrowserForm : Form
             onAfterBrowserCreated: null,
             useLegacyRenderHandler: true);
 
+        // Render at the Windows display scale so pages are not tiny on high-resolution screens.
+        browserScale = DeviceDpi / 96F;
+        browser.DeviceScaleFactor = browserScale;
+        surface.BrowserScale = browserScale;
+        browser.LifeSpanHandler = new SameWindowLifeSpanHandler();
+        browser.RequestHandler = new PromptingRequestHandler(this);
+
         browser.BrowserInitialized += BrowserInitialized;
         browser.Paint += BrowserPaint;
         browser.AddressChanged += BrowserAddressChanged;
@@ -105,7 +115,12 @@ internal sealed class BrowserForm : Form
         browser.LoadingStateChanged += BrowserLoadingStateChanged;
         browser.LoadError += BrowserLoadError;
         browser.ConsoleMessage += (_, eventArgs) =>
-            Program.WriteLog($"Console [{eventArgs.Level}] {eventArgs.Source}:{eventArgs.Line} {eventArgs.Message}");
+        {
+            if (eventArgs.Level == LogSeverity.Error)
+            {
+                Program.WriteLog($"Console error at {Program.Redact(eventArgs.Source)}:{eventArgs.Line}");
+            }
+        };
 
         surface.BrowserHostProvider = GetBrowserHost;
         surface.SizeChanged += (_, _) => ResizeBrowser();
@@ -125,12 +140,49 @@ internal sealed class BrowserForm : Form
         Load += (_, _) =>
         {
             browser.CreateBrowser();
-            if (smokeTest) BeginInvoke(Hide);
+            if (!smokeTest) return;
+            BeginInvoke(Hide);
+            // Chromium ignores input until the new page has produced a frame, so the click is
+            // repeated until the second page loads. A test that never finishes must fail
+            // instead of blocking the build.
+            var ticks = 0;
+            var smokeTimer = new System.Windows.Forms.Timer { Interval = 500 };
+            smokeTimer.Tick += (_, _) =>
+            {
+                if (smokeTestCompleted != 0)
+                {
+                    smokeTimer.Stop();
+                    return;
+                }
+                if (++ticks > 60)
+                {
+                    smokeTimer.Stop();
+                    Program.WriteLog("Smoke test timed out");
+                    Environment.ExitCode = 2;
+                    Close();
+                    return;
+                }
+
+                var host = GetBrowserHost();
+                if (host is null) return;
+                if (smokePopupLoaded)
+                {
+                    host.Invalidate(PaintElementType.View);
+                }
+                else if (smokeFirstPageLoaded)
+                {
+                    var click = new CefSharp.MouseEvent(50, 50, CefEventFlags.None);
+                    host.SendMouseMoveEvent(click, mouseLeave: false);
+                    host.SendMouseClickEvent(click, MouseButtonType.Left, mouseUp: false, clickCount: 1);
+                    host.SendMouseClickEvent(click, MouseButtonType.Left, mouseUp: true, clickCount: 1);
+                }
+            };
+            smokeTimer.Start();
         };
         FormClosed += (_, _) => browser.Dispose();
     }
 
-    private static Button CreateButton(string text, string tooltip)
+    internal static Button CreateButton(string text, string? tooltip)
     {
         var button = new Button
         {
@@ -154,7 +206,7 @@ internal sealed class BrowserForm : Form
                 button.Enabled ? Color.Black : Color.Gray,
                 TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         };
-        new ToolTip().SetToolTip(button, tooltip);
+        if (tooltip is not null) new ToolTip().SetToolTip(button, tooltip);
         return button;
     }
 
@@ -172,7 +224,7 @@ internal sealed class BrowserForm : Form
     private void ResizeBrowser()
     {
         if (!browser.IsBrowserInitialized || surface.ClientSize.Width < 1 || surface.ClientSize.Height < 1) return;
-        browser.Size = surface.ClientSize;
+        browser.Size = new Size((int)(surface.ClientSize.Width / browserScale), (int)(surface.ClientSize.Height / browserScale));
     }
 
     private void BrowserPaint(object? sender, OnPaintEventArgs eventArgs)
@@ -183,43 +235,50 @@ internal sealed class BrowserForm : Form
 
     private void CaptureFrame()
     {
-        try
+        // Cleared before the copy: a repaint that arrives while copying must schedule another capture.
+        Interlocked.Exchange(ref capturePending, 0);
+
+        using var screenshot = browser.ScreenshotOrNull(PopupBlending.Blend);
+        if (screenshot is null) return;
+
+        // Flatten onto white in memory so no alpha reaches the screen; Backstage shows it as black.
+        var frame = new Bitmap(screenshot.Width, screenshot.Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
+        using (var graphics = Graphics.FromImage(frame))
         {
-            using var screenshot = browser.ScreenshotOrNull(PopupBlending.Blend);
-            if (screenshot is null) return;
+            graphics.Clear(Color.White);
+            graphics.DrawImageUnscaled(screenshot, 0, 0);
+        }
 
-            // Flatten onto white in memory so no alpha reaches the screen; Backstage shows it as black.
-            var frame = new Bitmap(screenshot.Width, screenshot.Height, System.Drawing.Imaging.PixelFormat.Format32bppRgb);
-            using (var graphics = Graphics.FromImage(frame))
+        if (smokeTest && smokePopupLoaded && ShowsSmokePopupPage(frame) && Interlocked.Exchange(ref smokeTestCompleted, 1) == 0)
+        {
+            var smokeImage = Environment.GetEnvironmentVariable("TECH_BROWSER_SMOKE_IMAGE");
+            if (!string.IsNullOrWhiteSpace(smokeImage))
             {
-                graphics.Clear(Color.White);
-                graphics.DrawImageUnscaled(screenshot, 0, 0);
+                frame.Save(smokeImage, System.Drawing.Imaging.ImageFormat.Png);
             }
+            BeginInvoke(Close);
+        }
+        surface.SetFrame(frame);
+    }
 
-            if (smokeTest)
+    // Only the second smoke-test page paints a green block, so a blank frame or a frame
+    // of the first page cannot pass.
+    private static bool ShowsSmokePopupPage(Bitmap frame)
+    {
+        for (var y = 0; y < frame.Height; y += 4)
+        {
+            for (var x = 0; x < frame.Width; x += 4)
             {
-                var smokeImage = Environment.GetEnvironmentVariable("TECH_BROWSER_SMOKE_IMAGE");
-                if (!string.IsNullOrWhiteSpace(smokeImage))
-                {
-                    frame.Save(smokeImage, System.Drawing.Imaging.ImageFormat.Png);
-                }
-            }
-            surface.SetFrame(frame);
-
-            if (smokeTest && Interlocked.Exchange(ref smokeTestCompleted, 1) == 0)
-            {
-                BeginInvoke(Close);
+                var pixel = frame.GetPixel(x, y);
+                if (pixel.G > pixel.R + 60 && pixel.G > pixel.B + 60) return true;
             }
         }
-        finally
-        {
-            Interlocked.Exchange(ref capturePending, 0);
-        }
+        return false;
     }
 
     private void BrowserAddressChanged(object? sender, AddressChangedEventArgs eventArgs)
     {
-        Program.WriteLog($"Address changed: {eventArgs.Address}");
+        Program.WriteLog($"Address changed: {Program.Redact(eventArgs.Address)}");
         UpdateUi(() => addressBox.Text = eventArgs.Address);
     }
 
@@ -231,6 +290,7 @@ internal sealed class BrowserForm : Form
     private void BrowserLoadingStateChanged(object? sender, LoadingStateChangedEventArgs eventArgs)
     {
         Program.WriteLog($"Loading state: IsLoading={eventArgs.IsLoading}; Back={eventArgs.CanGoBack}; Forward={eventArgs.CanGoForward}");
+        if (smokeTest && !eventArgs.IsLoading) AdvanceSmokeTest(eventArgs.Browser);
         UpdateUi(() =>
         {
             backButton.Enabled = eventArgs.CanGoBack;
@@ -240,10 +300,18 @@ internal sealed class BrowserForm : Form
         });
     }
 
+    // Smoke test: the timer clicks the "new window" link on the first page and waits for the second.
+    // This exercises mouse input, popup redirection and rendering in the packaged build.
+    private void AdvanceSmokeTest(IBrowser smokeBrowser)
+    {
+        if (smokeBrowser.MainFrame.Url == Program.SmokePopupUrl) smokePopupLoaded = true;
+        else smokeFirstPageLoaded = true;
+    }
+
     private void BrowserLoadError(object? sender, LoadErrorEventArgs eventArgs)
     {
         if (eventArgs.ErrorCode == CefErrorCode.Aborted) return;
-        Program.WriteLog($"Load error: Url={eventArgs.FailedUrl}; Code={eventArgs.ErrorCode}; Text={eventArgs.ErrorText}");
+        Program.WriteLog($"Load error: Url={Program.Redact(eventArgs.FailedUrl)}; Code={eventArgs.ErrorCode}; Text={eventArgs.ErrorText}");
         UpdateUi(() => statusLabel.Text = $"Fehler: {eventArgs.ErrorText}");
     }
 
@@ -256,6 +324,12 @@ internal sealed class BrowserForm : Form
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        // The page receives Tab and arrow keys, so the address bar needs its own shortcut.
+        if (keyData is (Keys.Control | Keys.L) or Keys.F6)
+        {
+            addressBox.Focus();
+            return true;
+        }
         if (addressBox.Focused && keyData == Keys.Enter)
         {
             NavigateFromAddressBox();
@@ -272,7 +346,7 @@ internal sealed class BrowserForm : Form
 
     private void Navigate(string address)
     {
-        Program.WriteLog($"Navigate requested: {address}");
+        Program.WriteLog($"Navigate requested: {Program.Redact(address)}");
         statusLabel.Text = "Öffne …";
         browser.LoadUrl(address);
     }
@@ -283,10 +357,10 @@ internal sealed class BrowserForm : Form
         BeginInvoke(action);
     }
 
-    private static string NormalizeAddress(string? input)
+    internal static string NormalizeAddress(string? input)
     {
         var value = input?.Trim() ?? string.Empty;
-        if (value.Length == 0) return "about:blank";
+        if (value.Length == 0 || value == "about:blank") return "about:blank";
         if (Uri.TryCreate(value, UriKind.Absolute, out var absolute) &&
             (absolute.Scheme == Uri.UriSchemeHttp ||
              absolute.Scheme == Uri.UriSchemeHttps ||
@@ -301,7 +375,36 @@ internal sealed class BrowserForm : Form
         }
 
         if (value.Contains('.') && !value.Contains(' ')) return $"https://{value}";
+        // A single word is an internal host name such as "nas" or "printer01:8080", not a search.
+        if (System.Text.RegularExpressions.Regex.IsMatch(value, @"^[A-Za-z0-9-]+(:\d+)?(/.*)?$")) return $"http://{value}";
         return $"https://www.google.com/search?q={Uri.EscapeDataString(value)}";
+    }
+
+    // Run by the package verification through --self-test; failures are written to the log.
+    internal static bool SelfTest()
+    {
+        (string Input, string Expected)[] cases =
+        [
+            ("https://example.com/a", "https://example.com/a"),
+            ("192.168.1.1", "http://192.168.1.1"),
+            ("localhost:8080/status", "http://localhost:8080/status"),
+            ("example.com/path", "https://example.com/path"),
+            ("printer01", "http://printer01"),
+            ("nas:8080", "http://nas:8080"),
+            ("about:blank", "about:blank"),
+            ("", "about:blank"),
+            ("drucker firmware", "https://www.google.com/search?q=drucker%20firmware")
+        ];
+
+        var passed = true;
+        foreach (var (input, expected) in cases)
+        {
+            var actual = NormalizeAddress(input);
+            if (actual == expected) continue;
+            Program.WriteLog($"Self-test failed: '{input}' gave '{actual}', expected '{expected}'");
+            passed = false;
+        }
+        return passed;
     }
 
     private static bool LooksLikeLocalAddress(string value)

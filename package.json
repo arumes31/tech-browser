@@ -1,45 +1,11 @@
 {
-  "name": "eworx-tech-browser",
-  "version": "0.3.1",
-  "description": "A Backstage-compatible Chromium browser for ConnectWise Control using offscreen rendering and GDI output.",
-  "main": "src/main.js",
-  "author": "eworx",
-  "license": "UNLICENSED",
+  "name": "tech-browser-build",
   "private": true,
+  "description": "Build tooling for the Tech Browser toolbox package.",
   "scripts": {
-    "start": "electron .",
-    "test": "node --test",
-    "pack:win": "electron-builder --win portable --x64",
-    "pack:toolbox": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-toolbox.ps1",
-    "pack:toolbox:compact": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-toolbox-compact.ps1",
-    "pack:toolbox:gdi": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-toolbox-gdi.ps1",
-    "dist:win": "electron-builder --win portable zip --x64"
+    "pack:toolbox:gdi": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-toolbox-gdi.ps1"
   },
   "devDependencies": {
-    "7zip-bin": "5.2.0",
-    "electron": "44.5.1",
-    "electron-builder": "26.15.3"
-  },
-  "build": {
-    "appId": "de.eworx.techbrowser",
-    "productName": "Tech Browser",
-    "artifactName": "Tech-Browser-${version}-${arch}.${ext}",
-    "asar": true,
-    "files": [
-      "src/**/*",
-      "package.json"
-    ],
-    "directories": {
-      "output": "dist"
-    },
-    "portable": {
-      "artifactName": "Tech-Browser-${version}-${arch}-portable.${ext}"
-    },
-    "win": {
-      "target": [
-        "portable",
-        "zip"
-      ]
-    }
+    "7zip-bin": "5.2.0"
   }
 }
