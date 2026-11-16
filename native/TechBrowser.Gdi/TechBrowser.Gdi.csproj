@@ -14,7 +14,44 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
   </PropertyGroup>
 
+  <!-- Publish one portable exe. CEF needs its DLLs and .pak files on disk, so the .NET host
+       unpacks everything to %TEMP%\.net on first start and reuses it afterwards. -->
+  <PropertyGroup>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeAllContentForSelfExtract>true</IncludeAllContentForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>none</DebugType>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="CefSharp.OffScreen.NETCore" Version="150.0.110" />
   </ItemGroup>
+
+  <!-- Runs before the bundle is written, so removed files never reach the exe. -->
+  <Target Name="TrimTechBrowserPublish" AfterTargets="ComputeResolvedFilesToPublishList">
+    <PropertyGroup>
+      <!-- GPU is disabled: WebGPU and SwiftShader are never loaded (libEGL, libGLESv2 and d3dcompiler_47
+           must stay, CefSharp refuses to start without them). The rest is WPF and debugger support
+           a WinForms app does not load, and the CefSharp subprocess exe this build self-hosts. -->
+      <UnusedPublishFiles>(?i)^(dxcompiler\.dll|dxil\.dll|vk_swiftshader\.dll|vk_swiftshader_icd\.json|vulkan-1\.dll|Presentation.*\.dll|wpfgfx_cor3\.dll|D3DCompiler_47_cor3\.dll|PenImc_cor3\.dll|ReachFramework\.dll|System\.Xaml\.dll|System\.Windows\.Controls\.Ribbon\.dll|System\.Windows\.Presentation\.dll|System\.Windows\.Input\.Manipulations\.dll|UIAutomation.*\.dll|WindowsFormsIntegration\.dll|System\.Printing\.dll|DirectWriteForwarder\.dll|vcruntime140_cor3\.dll|createdump\.exe|mscordaccore.*\.dll|mscordbi\.dll|Microsoft\.DiaSymReader\.Native\.amd64\.dll|CefSharp\.BrowserSubprocess\.exe|.*\.pdb)$</UnusedPublishFiles>
+      <!-- Chromium UI strings: keep English and German. Web page content is unaffected. -->
+      <UnusedLocales>(?i)^locales\\(?!(en-US|de)[._])</UnusedLocales>
+      <VcRuntimeDirectory>$(WINDIR)\System32</VcRuntimeDirectory>
+    </PropertyGroup>
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)"
+                             Condition="$([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '$(UnusedPublishFiles)')) or $([System.Text.RegularExpressions.Regex]::IsMatch('%(ResolvedFileToPublish.RelativePath)', '$(UnusedLocales)'))" />
+    </ItemGroup>
+
+    <!-- CefSharp 138+ is built with Visual C++ 2022; ship its runtime so endpoints need no redistributable. -->
+    <Error Condition="!Exists('$(VcRuntimeDirectory)\msvcp140.dll') or !Exists('$(VcRuntimeDirectory)\vcruntime140.dll') or !Exists('$(VcRuntimeDirectory)\vcruntime140_1.dll')"
+           Text="Visual C++ 2022 x64 runtime not found in $(VcRuntimeDirectory)." />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(VcRuntimeDirectory)\msvcp140.dll" RelativePath="msvcp140.dll" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(VcRuntimeDirectory)\vcruntime140.dll" RelativePath="vcruntime140.dll" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(VcRuntimeDirectory)\vcruntime140_1.dll" RelativePath="vcruntime140_1.dll" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 </Project>

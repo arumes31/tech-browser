@@ -7,11 +7,12 @@ $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 if (-not $Artifact) {
-    $Artifact = "dist\Tech-Browser-$(& (Join-Path $PSScriptRoot 'version.ps1'))-x64-gdi.scapp"
+    $Artifact = "dist\Tech-Browser-$(& (Join-Path $PSScriptRoot 'version.ps1'))-x64-gdi.exe"
 }
 $distPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot 'dist')).TrimEnd('\')
 $artifactPath = [System.IO.Path]::GetFullPath((Join-Path $projectRoot $Artifact))
-$verifyPath = [System.IO.Path]::GetFullPath((Join-Path $distPath 'verify-gdi-scapp'))
+$verifyPath = [System.IO.Path]::GetFullPath((Join-Path $distPath 'verify-gdi-exe'))
+$extractPath = Join-Path $verifyPath 'extract'
 $smokeImagePath = [System.IO.Path]::GetFullPath((Join-Path $distPath 'gdi-smoke.png'))
 
 foreach ($candidate in @($artifactPath, $verifyPath, $smokeImagePath)) {
@@ -31,38 +32,24 @@ if (Test-Path -LiteralPath $smokeImagePath) {
 }
 New-Item -ItemType Directory -Path $verifyPath | Out-Null
 
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::OpenRead($artifactPath)
-try {
-    $entryCount = $zip.Entries.Count
-    $firstName = $zip.Entries | Sort-Object FullName | Select-Object -First 1 -ExpandProperty FullName
-}
-finally {
-    $zip.Dispose()
-}
+# Run a copy from an otherwise empty folder, the way the ScreenConnect toolbox starts it.
+$exePath = Join-Path $verifyPath (Split-Path -Leaf $artifactPath)
+Copy-Item -LiteralPath $artifactPath -Destination $exePath
 
-if ($firstName -ne '0-Tech-Browser-GDI.vbs') {
-    throw "Unexpected first toolbox entry: $firstName"
-}
-
-[System.IO.Compression.ZipFile]::ExtractToDirectory($artifactPath, $verifyPath)
-$launcherPath = Join-Path $verifyPath '0-Tech-Browser-GDI.vbs'
-foreach ($required in @($launcherPath, (Join-Path $verifyPath '7za.exe'), (Join-Path $verifyPath 'payload.7z'), (Join-Path $verifyPath 'payload.id'))) {
-    if (-not (Test-Path -LiteralPath $required)) {
-        throw "Required package file is missing: $required"
-    }
-}
-
+# An isolated extraction folder proves the exe unpacks itself and keeps the runner's %TEMP% clean.
 $previousSmokeImage = $env:TECH_BROWSER_SMOKE_IMAGE
+$previousExtractBase = $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR
 try {
     $env:TECH_BROWSER_SMOKE_IMAGE = $smokeImagePath
-    $wscriptPath = Join-Path $env:SystemRoot 'System32\wscript.exe'
-    $process = Start-Process -FilePath $wscriptPath `
-        -ArgumentList @('//B', '//NoLogo', ('"{0}"' -f $launcherPath), '--smoke-test') `
-        -WorkingDirectory $verifyPath -Wait -PassThru
+    $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $extractPath
+    $process = Start-Process -FilePath $exePath -ArgumentList '--smoke-test' -WorkingDirectory $verifyPath -Wait -PassThru
+
+    # The address-bar rules have no separate test project; the executable checks them itself.
+    $selfTest = Start-Process -FilePath $exePath -ArgumentList '--self-test' -WorkingDirectory $verifyPath -Wait -PassThru
 }
 finally {
     $env:TECH_BROWSER_SMOKE_IMAGE = $previousSmokeImage
+    $env:DOTNET_BUNDLE_EXTRACT_BASE_DIR = $previousExtractBase
 }
 
 $applicationLogPath = Join-Path $verifyPath 'Tech-Browser.log'
@@ -73,38 +60,27 @@ if ($process.ExitCode -ne 0) {
 if (-not (Test-Path -LiteralPath $smokeImagePath)) {
     throw 'The packaged browser exited successfully but did not render the smoke-test image.'
 }
-
-$runtimeFiles = @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll')
-foreach ($runtimeFile in $runtimeFiles) {
-    $runtimePath = Join-Path $verifyPath "app\$runtimeFile"
-    if (-not (Test-Path -LiteralPath $runtimePath)) {
-        throw "The packaged browser is missing Visual C++ runtime file: $runtimeFile"
-    }
-}
-
-$launcherLogPath = Join-Path $verifyPath 'Tech-Browser-launcher.log'
-foreach ($logPath in @($launcherLogPath, $applicationLogPath)) {
-    if (-not (Test-Path -LiteralPath $logPath)) {
-        throw "Expected diagnostic log was not created: $logPath"
-    }
-}
-
-# The address-bar rules have no separate test project; the executable checks them itself.
-$selfTest = Start-Process -FilePath (Join-Path $verifyPath 'app\Tech Browser.exe') -ArgumentList '--self-test' `
-    -WorkingDirectory $verifyPath -Wait -PassThru
 if ($selfTest.ExitCode -ne 0) {
     Get-Content -LiteralPath $applicationLogPath | Write-Host
     throw "Address self-test failed with exit code $($selfTest.ExitCode)."
+}
+if (-not (Test-Path -LiteralPath $applicationLogPath)) {
+    throw "Expected diagnostic log was not created beside the exe: $applicationLogPath"
+}
+
+$runtimeFiles = @('msvcp140.dll', 'vcruntime140.dll', 'vcruntime140_1.dll', 'libcef.dll')
+foreach ($runtimeFile in $runtimeFiles) {
+    if (-not (Get-ChildItem -LiteralPath $extractPath -Recurse -File -Filter $runtimeFile)) {
+        throw "The exe did not unpack required file: $runtimeFile"
+    }
 }
 
 $hash = Get-FileHash -LiteralPath $artifactPath -Algorithm SHA256
 $result = [pscustomobject]@{
     SmokeExit = $process.ExitCode
+    SelfTestExit = $selfTest.ExitCode
     RenderedImage = $smokeImagePath
-    RuntimeFiles = $runtimeFiles -join ', '
-    DiagnosticLogs = 'Tech-Browser-launcher.log, Tech-Browser.log'
-    Entries = $entryCount
-    FirstAlphabetical = $firstName
+    UnpackedFiles = $runtimeFiles -join ', '
     SizeMiB = [math]::Round((Get-Item -LiteralPath $artifactPath).Length / 1MB, 1)
     SHA256 = $hash.Hash
 }
