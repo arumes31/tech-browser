@@ -39,20 +39,12 @@ jobs:
       - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
         with:
           dotnet-version: 8.0.x
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-        with:
-          version: 10
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Build package
         shell: powershell
         run: ./scripts/build-toolbox-gdi.ps1 -Version '${{ steps.version.outputs.version }}'
       - name: Verify package
         shell: powershell
-        run: ./scripts/verify-toolbox-gdi.ps1 -Artifact 'dist\Tech-Browser-${{ steps.version.outputs.version }}-x64-gdi.scapp'
+        run: ./scripts/verify-toolbox-gdi.ps1 -Artifact 'dist\Tech-Browser-${{ steps.version.outputs.version }}-x64-gdi.exe'
       - name: Publish release
         shell: bash
         env:
@@ -61,9 +53,9 @@ jobs:
         run: |
           # A rerun of an already published commit replaces the file instead of creating a new release.
           if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/*.scapp --clobber
+            gh release upload "$TAG" dist/*.exe --clobber
           elif [[ "$TAG" == *-* ]]; then
-            gh release create "$TAG" dist/*.scapp --target "$GITHUB_SHA" --generate-notes --prerelease
+            gh release create "$TAG" dist/*.exe --target "$GITHUB_SHA" --generate-notes --prerelease
           else
-            gh release create "$TAG" dist/*.scapp --target "$GITHUB_SHA" --generate-notes
+            gh release create "$TAG" dist/*.exe --target "$GITHUB_SHA" --generate-notes
           fi

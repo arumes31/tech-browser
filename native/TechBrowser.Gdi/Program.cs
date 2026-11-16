@@ -6,8 +6,8 @@ namespace TechBrowser.Gdi;
 internal static class Program
 {
     private static readonly object LogLock = new();
-    private static readonly string LogDirectory = Directory.GetParent(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar))?.FullName
-                                                  ?? AppContext.BaseDirectory;
+    // The single-file exe unpacks its runtime to %TEMP%\.net; logs stay beside the exe the technician started.
+    private static readonly string LogDirectory = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
     private static readonly string ApplicationLogPath = Path.Combine(LogDirectory, "Tech-Browser.log");
     private static readonly string CefLogPath = Path.Combine(LogDirectory, "Tech-Browser-cef.log");
 
@@ -19,6 +19,13 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Chromium starts its renderer and utility processes from this exe (required for a single-file publish).
+        if (args.Any(arg => arg.StartsWith("--type=", StringComparison.Ordinal)))
+        {
+            Environment.ExitCode = RunSubprocess(args);
+            return;
+        }
+
         var smokeTest = args.Contains("--smoke-test", StringComparer.OrdinalIgnoreCase);
         try
         {
@@ -36,6 +43,8 @@ internal static class Program
             // Backstage runs on an unthemed desktop; these values explain black controls in the field.
             WriteLog($"Display; HighContrast={SystemInformation.HighContrast}; Control={SystemColors.Control.ToArgb():X8}; ControlText={SystemColors.ControlText.ToArgb():X8}; Window={SystemColors.Window.ToArgb():X8}; BitsPerPixel={Screen.PrimaryScreen?.BitsPerPixel}");
 
+            RemoveOldExtractions();
+
             if (args.Contains("--self-test", StringComparer.OrdinalIgnoreCase))
             {
                 Environment.ExitCode = BrowserForm.SelfTest() ? 0 : 1;
@@ -50,6 +59,7 @@ internal static class Program
             {
                 WindowlessRenderingEnabled = true,
                 MultiThreadedMessageLoop = true,
+                BrowserSubprocessPath = Environment.ProcessPath,
                 LogSeverity = LogSeverity.Warning,
                 LogFile = CefLogPath,
                 PersistSessionCookies = false,
@@ -69,7 +79,8 @@ internal static class Program
             settings.CefCommandLineArgs["disable-renderer-backgrounding"] = "1";
 
             WriteLog("Initializing CEF");
-            if (!Cef.Initialize(settings, performDependencyCheck: true, browserProcessHandler: null))
+            // The dependency check looks for CefSharp.BrowserSubprocess.exe, which a self-hosted build does not use.
+            if (!Cef.Initialize(settings, performDependencyCheck: false, browserProcessHandler: null))
             {
                 WriteLog("CEF initialization returned false");
                 Environment.ExitCode = 1;
@@ -114,6 +125,29 @@ internal static class Program
                     MessageBoxIcon.Error);
             }
             Environment.ExitCode = 1;
+        }
+    }
+
+    private static int RunSubprocess(string[] args)
+    {
+        // The .NET host gives the main thread 1 MB of stack; Chromium renderers expect 8 MB.
+        var exitCode = 0;
+        var thread = new Thread(() => exitCode = CefSharp.BrowserSubprocess.SelfHost.Main(args), 8 * 1024 * 1024);
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        return exitCode;
+    }
+
+    // Each release unpacks to its own %TEMP%\.net\<app>\<hash> folder; drop the ones from earlier releases.
+    private static void RemoveOldExtractions()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory.TrimEnd(Path.DirectorySeparatorChar));
+        if (current.Parent?.Parent is not { Name: ".net" }) return;
+        foreach (var old in current.Parent.EnumerateDirectories().Where(directory => directory.Name != current.Name))
+        {
+            // A folder still used by another running release cannot be deleted; it goes next time.
+            try { old.Delete(recursive: true); } catch (IOException) { } catch (UnauthorizedAccessException) { }
         }
     }
 
